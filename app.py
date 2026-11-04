@@ -12,6 +12,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 from emporio.agent import build_agent, chat  # noqa: E402
+from emporio.ui_format import to_streamlit_markdown  # noqa: E402
 
 st.set_page_config(page_title="Empório da Música — Atendimento", page_icon="🎸")
 
@@ -64,14 +65,14 @@ def render_tool_calls(calls):
 
 for msg in st.session_state.history:
     with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+        st.markdown(to_streamlit_markdown(msg["content"]))
         if msg["role"] == "assistant":
             render_tool_calls(msg["tool_calls"])
 
 if prompt := st.chat_input("Digite sua mensagem..."):
     st.session_state.history.append({"role": "user", "content": prompt, "tool_calls": []})
     with st.chat_message("user"):
-        st.markdown(prompt)
+        st.markdown(to_streamlit_markdown(prompt))
     with st.chat_message("assistant"):
         with st.spinner("Consultando..."):
             try:
@@ -79,6 +80,6 @@ if prompt := st.chat_input("Digite sua mensagem..."):
                 reply, calls = turn.reply, turn.tool_calls
             except Exception as err:  # network / quota errors should not crash the chat
                 reply, calls = f"Desculpe, tive um problema técnico agora ({type(err).__name__}). Pode tentar de novo?", []
-        st.markdown(reply)
+        st.markdown(to_streamlit_markdown(reply))
         render_tool_calls(calls)
     st.session_state.history.append({"role": "assistant", "content": reply, "tool_calls": calls})
