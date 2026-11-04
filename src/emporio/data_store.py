@@ -35,6 +35,17 @@ def normalize(text: str) -> str:
     return "".join(c for c in text if not unicodedata.combining(c)).lower().strip()
 
 
+def _spec_keywords(specs: dict) -> str:
+    words = []
+    if specs.get("strings") == "steel":
+        words.append("aço")
+    elif specs.get("strings") == "nylon":
+        words.append("nylon")
+    if specs.get("electronics") == "yes":
+        words.append("elétrico eletroacústico")
+    return " ".join(words)
+
+
 def _read(name: str) -> pd.DataFrame:
     return pd.read_csv(DATA_DIR / f"{PREFIX}{name}.csv", encoding="utf-8")
 
@@ -64,7 +75,10 @@ def load_tables() -> dict[str, pd.DataFrame]:
         how="left",
     ).merge(active, on="product_id", how="left")
     products["specs"] = products["specs"].apply(lambda s: json.loads(s) if isinstance(s, str) else {})
-    products["search_text"] = (products["name"] + " " + products["category"]).map(normalize)
+    # Customers search by features ("aço", "elétrico"), which are in specs, not always in the name.
+    products["search_text"] = (
+        products["name"] + " " + products["category"] + " " + products["specs"].map(_spec_keywords)
+    ).map(normalize)
 
     return {
         "categories": categories,

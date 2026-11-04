@@ -51,6 +51,19 @@ def test_expired_promotion_is_ignored():
     assert p["pix_price_brl"] == round(11499 * 0.95, 2)
 
 
+def test_regressão_steel_string_filter_uses_specs_not_only_the_name():
+    # Bug: query="aço" missed the Tagima Woodstock (steel strings in specs, no "Aço" in its name).
+    result = ds.search_products(query="aço", category="Violões", max_price=1000, limit=50)
+    assert "Tagima Woodstock Dreadnought Natural" in names(result)
+    assert all(p["specs"]["strings"] == "steel" for p in result["products"])
+
+
+def test_electric_filter_uses_specs():
+    result = ds.search_products(query="elétrico", category="Violões", limit=50)
+    assert result["total_matches"] > 0
+    assert all(p["specs"]["electronics"] == "yes" for p in result["products"])
+
+
 def test_unknown_product_returns_no_matches():
     assert ds.search_products(query="Steinway piano de cauda")["total_matches"] == 0
 
