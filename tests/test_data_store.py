@@ -91,6 +91,35 @@ def test_nonexistent_order_gives_same_answer_as_wrong_contact():
     assert ds.check_order(999, "anacarol.ferreira@coldmail.com") == ds.check_order(8, "wrong@x.com")
 
 
+def test_regressão_return_and_warranty_deadlines_are_computed_in_code():
+    # Bug: the LLM said the manufacturer warranty (6 months to 2 years after receipt) had expired
+    # ~10 months after delivery. Date math now happens in code, not in the model.
+    from datetime import date
+
+    order = ds.check_order(4, "lucas.mendes@jmail.com", today=date(2026, 11, 4))
+    w = order["deadlines"]
+    assert w["based_on"] == {"order_date": "2025-12-10", "receipt_date_assumed": "2025-12-22"}
+    assert w["regret_return_7_days"] == {"until": "2025-12-29", "open": False}
+    assert w["defect_exchange_30_days"] == {"until": "2026-01-09", "open": False}
+    assert w["legal_warranty_90_days"] == {"until": "2026-03-22", "open": False}
+    assert w["manufacturer_warranty"] == {
+        "between": ["2026-06-22", "2027-12-22"],
+        "status": "may_be_valid_check_certificate",
+    }
+
+
+def test_deadlines_open_right_after_delivery():
+    from datetime import date
+
+    w = ds.check_order(4, "lucas.mendes@jmail.com", today=date(2025, 12, 24))["deadlines"]
+    assert w["regret_return_7_days"]["open"] is True
+    assert w["manufacturer_warranty"]["status"] == "valid"
+
+
+def test_orders_not_delivered_have_no_deadlines():
+    assert ds.check_order(8, "anacarol.ferreira@coldmail.com")["deadlines"] is None  # shipped
+
+
 def test_cancelled_order_includes_reason():
     order = ds.check_order(17, "matheus.correia@hayoo.com.br")
     assert order["status"] == "cancelled"
