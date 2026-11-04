@@ -78,6 +78,23 @@ def test_regressão_return_is_not_promised_before_checking_the_order(agent):
     assert "30 dias" not in second.reply  # defect window (from 10/12/2025) has expired too
 
 
+def test_regressão_replies_in_english_to_english_customer(agent):
+    # Bug: "Hi! Do you sell guitar strings?" was answered in Portuguese.
+    turn, _ = ask(agent, "Hi! Do you sell guitar strings?")
+    reply = turn.reply.lower()
+    assert "instrument" in reply
+    assert "não" not in reply and "olá" not in reply
+
+
+def test_regressão_out_of_stock_product_gets_available_alternatives(agent):
+    # Bug: for the out-of-stock Giannini GF-3D the agent only asked "want to see others?"
+    # instead of suggesting available items (policy 7.3).
+    turn, tools = ask(agent, "O Giannini GF-3D tem em estoque?")
+    assert tools.count("search_products") >= 2  # the product itself + alternatives
+    assert "esgotado" in turn.reply.lower() or "indisponível" in turn.reply.lower()
+    assert "R$" in turn.reply  # alternatives come with prices
+
+
 def test_accessories_are_out_of_scope(agent):
     turn, _ = ask(agent, "Vocês vendem cordas de violão?")
     assert "instrumento" in turn.reply.lower()

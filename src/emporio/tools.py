@@ -42,6 +42,11 @@ def search_products(
       including out-of-stock or discontinued ones, with their `availability`.
     - Without `query` the customer is browsing: only items available to buy
       are returned (e.g. category="Violões", max_price=1000).
+    - `query` also matches product features, so it works as a filter:
+      "aço" (steel strings), "nylon", "elétrico" (has electronics),
+      "soprano", "tenor"... Combine it with `category` and `max_price`.
+    At most 10 products are returned, cheapest first; `total_matches` tells
+    how many exist.
     Prices are in BRL. `promotion` appears only when a promotion is active.
     `pix_price_brl` is the 5% PIX price; it is null when a promotion applies
     because discounts do not stack.

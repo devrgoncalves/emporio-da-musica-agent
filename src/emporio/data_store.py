@@ -7,15 +7,20 @@ testable without an LLM. The agent only decides *which* query to run.
 
 from __future__ import annotations
 
+import calendar
 import json
 import re
 import unicodedata
+from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 
 import pandas as pd
 
 DATA_DIR = Path(__file__).resolve().parents[2] / "data"
+
+# Campo Grande/MS is UTC-4 all year (no daylight saving since 2019).
+STORE_TZ = timezone(timedelta(hours=-4), "America/Campo_Grande")
 PREFIX = "desafio_tecnico_ai_eng - "
 
 PIX_DISCOUNT_PERCENT = 5  # Policy 3: 5% off list price, not cumulative with promotions (6.2)
@@ -33,6 +38,17 @@ def normalize(text: str) -> str:
     """Lowercase and strip accents, so 'Violão' matches 'violao'."""
     text = unicodedata.normalize("NFKD", str(text))
     return "".join(c for c in text if not unicodedata.combining(c)).lower().strip()
+
+
+def _spec_keywords(specs: dict) -> str:
+    words = []
+    if specs.get("strings") == "steel":
+        words.append("aço")
+    elif specs.get("strings") == "nylon":
+        words.append("nylon")
+    if specs.get("electronics") == "yes":
+        words.append("elétrico eletroacústico")
+    return " ".join(words)
 
 
 def _read(name: str) -> pd.DataFrame:
@@ -64,7 +80,10 @@ def load_tables() -> dict[str, pd.DataFrame]:
         how="left",
     ).merge(active, on="product_id", how="left")
     products["specs"] = products["specs"].apply(lambda s: json.loads(s) if isinstance(s, str) else {})
-    products["search_text"] = (products["name"] + " " + products["category"]).map(normalize)
+    # Customers search by features ("aço", "elétrico"), which are in specs, not always in the name.
+    products["search_text"] = (
+        products["name"] + " " + products["category"] + " " + products["specs"].map(_spec_keywords)
+    ).map(normalize)
 
     return {
         "categories": categories,
@@ -154,7 +173,39 @@ def _digits(text: str) -> str:
     return re.sub(r"\D", "", str(text))
 
 
-def check_order(order_id: int, email_or_phone: str) -> dict:
+def _add_months(d: date, months: int) -> date:
+    month_index = d.month - 1 + months
+    year, month = d.year + month_index // 12, month_index % 12 + 1
+    return date(year, month, min(d.day, calendar.monthrange(year, month)[1]))
+
+
+def _deadlines(order_date: date, receipt: date, today: date) -> dict:
+    """Return/warranty windows from policies 4.1, 4.2, 8.1 and 8.2, computed here so the LLM never does date math."""
+
+    def window(until: date) -> dict:
+        return {"until": until.isoformat(), "open": today <= until}
+
+    manufacturer_min, manufacturer_max = _add_months(receipt, 6), _add_months(receipt, 24)
+    if today <= manufacturer_min:
+        manufacturer_status = "valid"
+    elif today <= manufacturer_max:
+        manufacturer_status = "may_be_valid_check_certificate"
+    else:
+        manufacturer_status = "expired"
+
+    return {
+        "based_on": {"order_date": order_date.isoformat(), "receipt_date_assumed": receipt.isoformat()},
+        "regret_return_7_days": window(receipt + timedelta(days=7)),
+        "defect_exchange_30_days": window(order_date + timedelta(days=30)),
+        "legal_warranty_90_days": window(receipt + timedelta(days=90)),
+        "manufacturer_warranty": {
+            "between": [manufacturer_min.isoformat(), manufacturer_max.isoformat()],
+            "status": manufacturer_status,
+        },
+    }
+
+
+def check_order(order_id: int, email_or_phone: str, today: date | None = None) -> dict:
     """Return an order only if the contact matches the customer who placed it.
 
     The same generic error is returned for "order not found" and "contact does
@@ -186,6 +237,15 @@ def check_order(order_id: int, email_or_phone: str) -> dict:
     def opt(value):
         return None if pd.isna(value) else value
 
+    deadlines = None
+    if order["status"] == "delivered" and opt(order["estimated_delivery"]):
+        # Assumption: there is no actual receipt date, so estimated_delivery is used as receipt.
+        deadlines = _deadlines(
+            date.fromisoformat(order["order_date"]),
+            date.fromisoformat(order["estimated_delivery"]),
+            today or datetime.now(STORE_TZ).date(),
+        )
+
     return {
         "verified": True,
         "order_id": int(order["order_id"]),
@@ -198,6 +258,7 @@ def check_order(order_id: int, email_or_phone: str) -> dict:
         "tracking_code": opt(order["tracking_code"]),
         "estimated_delivery": opt(order["estimated_delivery"]),
         "notes": opt(order["notes"]),
+        "deadlines": deadlines,
         "items": [
             {"product": row["name"], "quantity": int(row["quantity"])} for _, row in items.iterrows()
         ],
